@@ -1,0 +1,75 @@
+services:
+  spark-iceberg:
+    image: tabulario/spark-iceberg
+    container_name: spark-iceberg
+    networks:
+      - data_pipeline_network
+    depends_on:
+      - rest
+      - minio
+    volumes:
+      - ./warehouse:/home/iceberg/warehouse
+      - ./notebooks:/home/iceberg/notebooks/notebooks
+    environment:
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: supersecret
+      AWS_REGION: us-east-1
+    ports:
+      - "8888:8888"
+      - "8080:8080"
+      - "10000:10000"
+      - "10001:10001"
+
+  rest:
+    image: apache/iceberg-rest-fixture
+    container_name: iceberg-rest
+    networks:
+      - data_pipeline_network
+    ports:
+      - "8181:8181"
+    environment:
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: supersecret
+      AWS_REGION: us-east-1
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: supersecret
+    networks:
+      data_pipeline_network:
+        aliases:
+          - warehouse.minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  mc:
+    image: minio/mc
+    container_name: mc
+    depends_on:
+      - minio
+    networks:
+      - data_pipeline_network
+    entrypoint: >
+      /bin/sh -c "
+        until mc alias set minio http://minio:9000 admin supersecret; do sleep 1; done;
+        mc mb minio/warehouse --ignore-existing;
+        tail -f /dev/null
+      "
+
+volumes:
+  minio-data:
+
+networks:
+  data_pipeline_network:
+    name: data_pipeline_network
+    driver: bridge

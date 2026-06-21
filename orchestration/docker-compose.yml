@@ -1,0 +1,5 @@
+# Airflow services will be added here.
+
+networks:
+  data_pipeline_network:
+    external: true
