@@ -32,9 +32,16 @@ docker compose up -d
 
 MinIO credentials: `admin` / `supersecret` — bucket `warehouse` is created automatically.
 
-Run Spark jobs inside the processing container:
+Run Spark jobs inside the processing container (see
+[docs/processing_interface.md](docs/processing_interface.md) for the full job
+dependency order, exact spark-submit commands, and the final table names):
 
 ```bash
+docker exec spark-iceberg spark-submit /home/iceberg/jobs/ingest_yahoo_to_bronze.py
+docker exec spark-iceberg spark-submit /home/iceberg/jobs/bronze_to_silver.py
+docker exec spark-iceberg spark-submit /home/iceberg/jobs/silver_to_gold.py
+
+# interactive
 docker exec -it spark-iceberg pyspark
 docker exec -it spark-iceberg spark-sql
 ```
