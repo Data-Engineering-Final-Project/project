@@ -53,11 +53,19 @@ with DAG(
     ensure_streaming_running = BashOperator(
         task_id="ensure_streaming_running",
         bash_command=(
-            f"docker exec {SPARK_CONTAINER} bash -c "
-            f"'pgrep -f bronze_ingest_streams.py > /dev/null || "
-            f"(nohup spark-submit --packages {KAFKA_PACKAGE} "
+            # `docker exec -d` (run from this Airflow container, which has the
+            # docker CLI) truly detaches the process. `nohup cmd &` inside a
+            # single `docker exec spark-iceberg bash -c "..."` looks like it
+            # works but the process still dies the moment that exec session
+            # ends -- verified this the hard way: streaming silently stopped
+            # after the first restart even though this task kept reporting
+            # success, because it only checked "did the start command run",
+            # not "is the process still alive 15 minutes later".
+            f"docker exec {SPARK_CONTAINER} pgrep -f bronze_ingest_streams.py > /dev/null || "
+            f"docker exec -d {SPARK_CONTAINER} bash -c "
+            f"'spark-submit --packages {KAFKA_PACKAGE} "
             f"/home/iceberg/jobs/bronze_ingest_streams.py "
-            f"> /home/iceberg/warehouse/bronze_ingest_streams.log 2>&1 & echo started)'"
+            f"> /home/iceberg/warehouse/bronze_ingest_streams.log 2>&1'"
         ),
     )
 
