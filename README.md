@@ -1,6 +1,23 @@
-# Data Pipeline — Final Project
+# Volumetric Anomaly Detection — Data Pipeline Final Project
 
-Multi-service data pipeline: Kafka streaming, Spark + Iceberg processing, Airflow orchestration.
+An end-to-end data engineering pipeline for detecting "smart money" volume
+spikes in equity markets: streaming trade ticks (Kafka), late-arriving
+analyst sentiment (up to 48h delay, watermark-safe), and batch historical
+baselines (Yahoo Finance), landed through a bronze/silver/gold medallion
+architecture on Apache Iceberg + MinIO, scheduled end-to-end by Airflow.
+
+Full write-up of the business question, data sources, and data model is in
+[docs/architecture.md](docs/architecture.md) (includes a diagram) and
+[docs/data_model.md](docs/data_model.md).
+
+## What's in this repo
+
+| Directory         | Contents                                                        | Docs |
+|--------------------|-------------------------------------------------------------------|------|
+| `streaming/`       | Kafka (KRaft) + two producers (market ticks, analyst sentiment)   | [docs/streaming_interface.md](docs/streaming_interface.md) |
+| `processing/`      | MinIO + Spark + Iceberg REST catalog, all ETL jobs                | [docs/processing_interface.md](docs/processing_interface.md) |
+| `orchestration/`   | Airflow, schedules the batch chain + supervises the streaming job | this file |
+| `docs/`            | Architecture, data model, component interfaces                    | — |
 
 ## Prerequisites
 
@@ -13,6 +30,10 @@ job and producer runs inside its own container, and `STREAM_MODE=replay`
 you want to run a producer standalone outside Docker for debugging.
 
 ## Local startup
+
+Run these four steps in order. Each stack must be up before the next one
+that depends on it (orchestration triggers jobs inside the processing
+container via `docker exec`, so processing must already be running).
 
 ### 1. Create shared network (once)
 
@@ -54,6 +75,12 @@ docker exec -it spark-iceberg pyspark
 docker exec -it spark-iceberg spark-sql
 ```
 
+Check the results at any time:
+
+```bash
+docker exec spark-iceberg spark-sql -e "SELECT * FROM demo.gold.fact_volumetric_anomalies LIMIT 10;"
+```
+
 ### 3. Start the streaming stack (Kafka + producers)
 
 ```bash
@@ -93,18 +120,15 @@ docker compose up -d --build
 | Airflow UI  | http://localhost:8082 (admin / admin) |
 
 The `volumetric_pipeline` DAG runs every 15 minutes automatically (no manual
-unpause needed) and chains: `ensure_streaming_running` (starts the Kafka →
-bronze streaming job if it isn't already running) + `ingest_yahoo_batch` in
-parallel → `bronze_to_silver` → `silver_to_gold`. Trigger a run manually from
-the UI, or:
+unpause needed) and chains: `download_yahoo_data` + `ensure_streaming_running`
+(starts the Kafka → bronze streaming job if it isn't already running) →
+`ingest_yahoo_batch` → `bronze_to_silver` → `silver_to_gold`. Every task has
+retries and an on-failure alert callback. Trigger a run manually from the
+UI, or:
 
 ```bash
 docker exec airflow airflow dags trigger volumetric_pipeline
 ```
-
-Tasks run via `docker exec` into `spark-iceberg` (the Airflow container has
-the Docker CLI and the host's Docker socket mounted), so the `processing`
-stack must already be up before triggering a run.
 
 ### 5. Stop
 
@@ -113,6 +137,26 @@ cd processing && docker compose down
 cd ../streaming && docker compose down
 cd ../orchestration && docker compose down
 ```
+
+## Data sources
+
+| Source        | Kind              | How it's fetched                                                        |
+|-----------------|---------------------|-----------------------------------------------------------------------------|
+| Alpaca          | Streaming (real-time) | `market_events_producer.py` — IEX trade feed via `alpaca-py`               |
+| Alpha Vantage   | Streaming, deliberately late (1-48h) | `analyst_ratings_producer.py` — `NEWS_SENTIMENT` endpoint (no dedicated analyst-ratings endpoint on the free tier) |
+| Yahoo Finance   | Batch (5y daily history, 30 tickers) | `download_yahoo.py` — `yfinance`                                          |
+
+## Data quality
+
+Every batch job in `processing/jobs/` prints a `[DQ]` summary (row counts,
+null-key counts) on each run — see the job source for the exact checks. Bad
+market ticks are flagged via an `is_valid` column in `silver_market_prices`
+rather than silently dropped.
+
+## Demo & presentation
+
+Recordings live in the shared Drive folder:
+https://drive.google.com/drive/folders/1FfadtXh8PLl0mxetc5rG-RXbG60SKB1r?usp=sharing
 
 ## Git workflow
 
