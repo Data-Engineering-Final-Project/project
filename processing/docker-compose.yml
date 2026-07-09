@@ -10,6 +10,8 @@ services:
     volumes:
       - ./warehouse:/home/iceberg/warehouse
       - ./notebooks:/home/iceberg/notebooks/notebooks
+      - ./jobs:/home/iceberg/jobs
+      - ../data:/home/iceberg/data
     environment:
       AWS_ACCESS_KEY_ID: admin
       AWS_SECRET_ACCESS_KEY: supersecret
