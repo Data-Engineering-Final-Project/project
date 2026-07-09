@@ -46,6 +46,7 @@ with DAG(
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
+    is_paused_upon_creation=False,  # runs on its own schedule right away, no manual unpause needed
     tags=["volumetric-anomaly-detection"],
 ) as dag:
 

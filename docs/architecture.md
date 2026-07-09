@@ -86,11 +86,3 @@ before publishing (not just a stamped field — see
 key), a rating that only becomes visible in bronze on a later scheduled run
 is simply picked up then — no data is lost or double-counted regardless of
 how late it arrives.
-
-## Component ownership
-
-| Directory        | Owner      | Docs                                                    |
-|-------------------|------------|----------------------------------------------------------|
-| `streaming/`      | Student 1  | [streaming_interface.md](streaming_interface.md)         |
-| `processing/`     | Student 2  | [processing_interface.md](processing_interface.md)       |
-| `orchestration/`  | Student 3  | this file                                                  |

@@ -72,17 +72,37 @@ python streaming/producers/analyst_ratings_producer.py
 Set `STREAM_MODE=replay` in `.env` to run both producers without live market hours
 or API keys.
 
-### 4. Start orchestration (when ready)
+### 4. Start orchestration (Airflow)
 
 ```bash
-cd ../orchestration && docker compose up -d
+cd ../orchestration
+docker compose up -d --build
 ```
+
+| Service     | URL                            |
+|-------------|----------------------------------|
+| Airflow UI  | http://localhost:8082 (admin / admin) |
+
+The `volumetric_pipeline` DAG runs every 15 minutes automatically (no manual
+unpause needed) and chains: `ensure_streaming_running` (starts the Kafka →
+bronze streaming job if it isn't already running) + `ingest_yahoo_batch` in
+parallel → `bronze_to_silver` → `silver_to_gold`. Trigger a run manually from
+the UI, or:
+
+```bash
+docker exec airflow airflow dags trigger volumetric_pipeline
+```
+
+Tasks run via `docker exec` into `spark-iceberg` (the Airflow container has
+the Docker CLI and the host's Docker socket mounted), so the `processing`
+stack must already be up before triggering a run.
 
 ### 5. Stop
 
 ```bash
 cd processing && docker compose down
 cd ../streaming && docker compose down
+cd ../orchestration && docker compose down
 ```
 
 ## Git workflow
