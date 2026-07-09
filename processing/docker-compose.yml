@@ -12,6 +12,7 @@ services:
       - ./notebooks:/home/iceberg/notebooks/notebooks
       - ./jobs:/home/iceberg/jobs
       - ../data:/home/iceberg/data
+      - ./conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
     environment:
       AWS_ACCESS_KEY_ID: admin
       AWS_SECRET_ACCESS_KEY: supersecret
@@ -33,9 +34,10 @@ services:
       AWS_ACCESS_KEY_ID: admin
       AWS_SECRET_ACCESS_KEY: supersecret
       AWS_REGION: us-east-1
-      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_WAREHOUSE: s3://warehouse/wh/
       CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
       CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
 
   minio:
     image: minio/minio
@@ -73,5 +75,4 @@ volumes:
 
 networks:
   data_pipeline_network:
-    name: data_pipeline_network
-    driver: bridge
+    external: true
