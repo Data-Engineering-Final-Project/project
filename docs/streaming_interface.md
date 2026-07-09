@@ -1,4 +1,7 @@
-# Streaming Interface (Student 1 → Student 2 handoff)
+# Streaming Interface
+
+Contract between the streaming layer (`/streaming`) and the processing layer
+(`/processing`): topic names, message schemas, and how to run each side.
 
 ## Running it
 
@@ -62,7 +65,7 @@ not on Kafka ingestion time. `rating_text` is one of: `Bullish`,
 `overall_sentiment_label`, the closest free-tier proxy to an analyst rating —
 map to a numeric `sentiment_score` in the silver layer).
 
-## Notes for Student 2
+## Notes for the processing layer
 
 - Consume both topics with `spark.readStream.format("kafka")`, `subscribe` per topic,
   `kafka.bootstrap.servers=kafka:29092` (internal listener, reachable from the

@@ -1,4 +1,7 @@
-# Processing Interface (Student 2 → Student 3 handoff)
+# Processing Interface
+
+Contract between the processing layer (`/processing`) and orchestration
+(`/orchestration`): job dependency order, spark-submit commands, and final table names.
 
 All jobs run inside the `spark-iceberg` container against the `demo` Iceberg
 REST catalog (backed by MinIO). Namespaces: `demo.bronze`, `demo.silver`, `demo.gold`.
