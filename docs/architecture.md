@@ -13,13 +13,13 @@ flowchart TB
         Yahoo[Yahoo Finance<br/>yfinance, batch]
     end
 
-    subgraph Streaming["streaming/ (Student 1)"]
+    subgraph Streaming["streaming/"]
         Kafka[(Kafka<br/>KRaft mode)]
         MEP[market_events_producer.py]
         ARP[analyst_ratings_producer.py]
     end
 
-    subgraph Processing["processing/ (Student 2)"]
+    subgraph Processing["processing/"]
         direction TB
         Bronze[(Bronze<br/>bronze_market_events<br/>bronze_analyst_ratings<br/>bronze_historical_prices)]
         Silver[(Silver<br/>silver_market_prices<br/>silver_analyst_ratings<br/>silver_historical_stats)]
@@ -27,7 +27,7 @@ flowchart TB
         MinIO[(MinIO S3<br/>Iceberg warehouse)]
     end
 
-    subgraph Orchestration["orchestration/ (Student 3)"]
+    subgraph Orchestration["orchestration/"]
         Airflow[Airflow DAG<br/>volumetric_pipeline]
     end
 

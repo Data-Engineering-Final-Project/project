@@ -1,6 +1,6 @@
 """
 Publishes analyst/news sentiment items to the Kafka topic "analyst-ratings",
-deliberately arriving late relative to their event_time so Student 2's
+deliberately arriving late relative to their event_time so the downstream
 Spark watermarking logic (up to 48h lateness) has something to handle.
 
 Message schema matches bronze_analyst_ratings (see docs/data_model.md):

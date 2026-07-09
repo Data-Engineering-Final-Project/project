@@ -32,7 +32,7 @@ def alert_on_failure(context):
 
 
 default_args = {
-    "owner": "student1",
+    "owner": "airflow",
     "retries": 2,
     "retry_delay": timedelta(minutes=2),
     "on_failure_callback": alert_on_failure,
