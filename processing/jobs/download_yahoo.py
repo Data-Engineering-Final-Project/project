@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import yfinance as yf
 
-OUTPUT_DIR = "data/bronze/yahoo"
+OUTPUT_DIR = "/home/iceberg/data/bronze/yahoo"
 
 tickers = [
     "AAPL", "MSFT", "NVDA", "TSLA", "AMZN",
@@ -43,6 +43,11 @@ for ticker in tickers:
     all_data.append(df)
 
 historical_data = pd.concat(all_data, ignore_index=True)
+
+# pandas/pyarrow default to nanosecond-precision timestamps, which Spark's
+# parquet reader rejects ("Illegal Parquet type: INT64 (TIMESTAMP(NANOS))").
+# Downcast to microseconds, which Spark reads natively.
+historical_data["Date"] = historical_data["Date"].astype("datetime64[us]")
 
 csv_path = f"{OUTPUT_DIR}/historical_market_data.csv"
 parquet_path = f"{OUTPUT_DIR}/historical_market_data.parquet"

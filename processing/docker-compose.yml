@@ -1,6 +1,6 @@
 services:
   spark-iceberg:
-    image: tabulario/spark-iceberg
+    build: .
     container_name: spark-iceberg
     networks:
       - data_pipeline_network
