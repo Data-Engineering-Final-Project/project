@@ -61,6 +61,15 @@ with DAG(
         ),
     )
 
+    download_yahoo_data = BashOperator(
+        task_id="download_yahoo_data",
+        bash_command=(
+            f"docker exec {SPARK_CONTAINER} bash -c "
+            f"'test -f /home/iceberg/data/bronze/yahoo/historical_market_data.parquet || "
+            f"python3 /home/iceberg/jobs/download_yahoo.py'"
+        ),
+    )
+
     ingest_yahoo_batch = BashOperator(
         task_id="ingest_yahoo_batch",
         bash_command=(
@@ -68,6 +77,8 @@ with DAG(
             f"spark-submit /home/iceberg/jobs/ingest_yahoo_to_bronze.py"
         ),
     )
+
+    download_yahoo_data >> ingest_yahoo_batch
 
     bronze_to_silver = BashOperator(
         task_id="bronze_to_silver",
