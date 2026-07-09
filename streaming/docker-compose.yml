@@ -33,6 +33,44 @@ services:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
 
+  market-events-producer:
+    build:
+      context: ..
+      dockerfile: streaming/Dockerfile
+    container_name: market-events-producer
+    depends_on:
+      - kafka
+    networks:
+      - data_pipeline_network
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    volumes:
+      - ../data:/app/data
+    restart: on-failure
+    command: ["python", "streaming/producers/market_events_producer.py"]
+
+  analyst-ratings-producer:
+    build:
+      context: ..
+      dockerfile: streaming/Dockerfile
+    container_name: analyst-ratings-producer
+    depends_on:
+      - kafka
+    networks:
+      - data_pipeline_network
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    volumes:
+      - ../data:/app/data
+    restart: on-failure
+    command: ["python", "streaming/producers/analyst_ratings_producer.py"]
+
 volumes:
   kafka-data:
 

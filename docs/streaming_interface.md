@@ -4,25 +4,30 @@
 
 ```bash
 docker network create data_pipeline_network 2>/dev/null || true
+cp .env.example .env   # optional: real API keys for live mode
 cd streaming
-docker compose up -d
+docker compose up -d --build
 ```
 
-| Service   | URL                        |
-|-----------|-----------------------------|
-| Kafka     | localhost:9092 (host), kafka:29092 (docker network) |
-| Kafka UI  | http://localhost:8090        |
+| Service                    | URL / notes                                          |
+|------------------------------|-------------------------------------------------------|
+| Kafka                       | localhost:9092 (host), kafka:29092 (docker network)    |
+| Kafka UI                    | http://localhost:8090                                  |
+| market-events-producer      | `docker logs -f market-events-producer`                |
+| analyst-ratings-producer    | `docker logs -f analyst-ratings-producer`               |
 
-Then, from the repo root, with `.venv` active and `.env` populated (see `.env.example`):
+Both producers run as their own containers (`streaming/Dockerfile`, built from
+the repo root so it can reach `requirements.txt`), continuously in `replay`
+mode by default — no API keys needed, no host Python setup. Set
+`STREAM_MODE=live` in `.env` and fill in the Alpaca/Alpha Vantage keys for
+real feeds, then `docker compose up -d --build` again.
+
+To run a producer standalone on the host instead (e.g. for debugging):
 
 ```bash
-python streaming/producers/market_events_producer.py
-python streaming/producers/analyst_ratings_producer.py
+python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 python streaming/producers/market_events_producer.py
 ```
-
-Set `STREAM_MODE=replay` in `.env` to run both producers without live market hours or
-API keys (uses the already-downloaded Yahoo data / synthetic sentiment as a source).
-`STREAM_MODE=live` uses real Alpaca/Alpha Vantage feeds.
 
 ## Topics
 

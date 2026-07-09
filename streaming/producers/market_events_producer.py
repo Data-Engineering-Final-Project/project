@@ -29,7 +29,7 @@ load_dotenv()
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC = "market-events"
-STREAM_MODE = os.environ.get("STREAM_MODE", "live")
+STREAM_MODE = os.environ.get("STREAM_MODE", "replay")  # safe default: works with no API keys
 
 TICKERS = [
     "AAPL", "MSFT", "NVDA", "TSLA", "AMZN",
@@ -75,29 +75,31 @@ def run_replay(producer: Producer) -> None:
     print(f"Replay mode: streaming synthetic ticks from {HISTORICAL_CSV}")
     with open(HISTORICAL_CSV, newline="") as f:
         rows = list(csv.DictReader(f))
-    random.shuffle(rows)
 
-    for row in rows:
-        ticker = row.get("Ticker")
-        if ticker not in TICKERS:
-            continue
-        try:
-            close = float(row["Close"])
-            day_volume = int(float(row["Volume"]))
-        except (KeyError, ValueError):
-            continue
+    # Loops forever (re-shuffling each pass) so this behaves like a live feed
+    # for as long as the container runs, instead of publishing one batch and exiting.
+    while True:
+        random.shuffle(rows)
+        for row in rows:
+            ticker = row.get("Ticker")
+            if ticker not in TICKERS:
+                continue
+            try:
+                close = float(row["Close"])
+                day_volume = int(float(row["Volume"]))
+            except (KeyError, ValueError):
+                continue
 
-        # Simulate a handful of intraday ticks around the day's close/volume
-        # instead of replaying one event per day.
-        for _ in range(random.randint(1, 3)):
-            jitter = random.uniform(-0.01, 0.01)
-            tick_price = close * (1 + jitter)
-            tick_volume = max(1, int(day_volume * random.uniform(0.001, 0.01)))
-            publish_event(producer, ticker, tick_price, tick_volume, datetime.now(timezone.utc))
-            time.sleep(0.2)
-
-    producer.flush()
-    print("Replay complete.")
+            # Simulate a handful of intraday ticks around the day's close/volume
+            # instead of replaying one event per day.
+            for _ in range(random.randint(1, 3)):
+                jitter = random.uniform(-0.01, 0.01)
+                tick_price = close * (1 + jitter)
+                tick_volume = max(1, int(day_volume * random.uniform(0.001, 0.01)))
+                publish_event(producer, ticker, tick_price, tick_volume, datetime.now(timezone.utc))
+                time.sleep(0.2)
+        producer.flush()
+        print("Replay pass complete, looping.")
 
 
 def run_live(producer: Producer) -> None:

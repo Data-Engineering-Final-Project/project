@@ -6,6 +6,9 @@ REST catalog (backed by MinIO). Namespaces: `demo.bronze`, `demo.silver`, `demo.
 ## Job dependency order
 
 ```
+download_yahoo.py          (batch, run once — pulls raw data from Yahoo Finance)
+        │
+        ▼
 ingest_yahoo_to_bronze.py  (batch, run once / whenever new history is needed)
 bronze_ingest_streams.py   (streaming, long-running — Kafka -> bronze)
         │
@@ -24,7 +27,10 @@ Processing" (Kafka → bronze) and "Batch Processing" (bronze → silver → gol
 ## spark-submit commands
 
 ```bash
-# One-time / periodic batch ingestion of Yahoo historical data
+# One-time: download raw Yahoo Finance data (30 tickers, 5y daily) into data/bronze/yahoo/
+docker exec spark-iceberg python3 /home/iceberg/jobs/download_yahoo.py
+
+# One-time / periodic batch ingestion of Yahoo historical data into Iceberg
 docker exec spark-iceberg spark-submit /home/iceberg/jobs/ingest_yahoo_to_bronze.py
 
 # Long-running: Kafka -> Iceberg bronze (needs the Kafka connector, not bundled)
@@ -72,6 +78,12 @@ docker exec spark-iceberg spark-sql -e "SELECT * FROM demo.gold.fact_volumetric_
   addresses buckets as `warehouse.minio:9000` (virtual-hosted style), which
   MinIO can't resolve, and every write fails with `NoSuchBucketException`
   even though the bucket exists.
+- `download_yahoo.py` needs `yfinance>=1.5.1` — 0.2.51 fails outright against
+  Yahoo's current API (session/crumb bootstrap issue). `processing/Dockerfile`
+  installs it into the `spark-iceberg` image so this runs without a host
+  Python setup. Its output path must be absolute (`/home/iceberg/data/...`),
+  not relative — relative paths resolve against the container's default
+  working directory, not the mounted `../data` volume.
 - `bronze_to_silver.py` and `silver_to_gold.py` are batch jobs, not Structured
   Streaming readers off the bronze/silver Iceberg tables — that path hits a
   real incompatibility (Iceberg's streaming source offset tracking needs the

@@ -37,7 +37,7 @@ load_dotenv()
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC = "analyst-ratings"
-STREAM_MODE = os.environ.get("STREAM_MODE", "live")
+STREAM_MODE = os.environ.get("STREAM_MODE", "replay")  # safe default: works with no API keys
 DELAY_COMPRESSION_FACTOR = int(os.environ.get("DELAY_COMPRESSION_FACTOR", "720"))
 SOURCE = "Alpha Vantage"
 
@@ -160,4 +160,6 @@ def run(producer: Producer) -> None:
 
 if __name__ == "__main__":
     kafka_producer = make_producer()
-    run(kafka_producer)
+    while True:
+        run(kafka_producer)
+        print("Cycle complete, scheduling another round of ratings.")
