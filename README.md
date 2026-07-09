@@ -39,17 +39,43 @@ docker exec -it spark-iceberg pyspark
 docker exec -it spark-iceberg spark-sql
 ```
 
-### 3. Start other components (when ready)
+### 3. Start the streaming stack (Kafka)
 
 ```bash
-cd ../streaming && docker compose up -d
+cd ../streaming
+docker compose up -d
+```
+
+| Service   | URL                                                  |
+|-----------|-------------------------------------------------------|
+| Kafka     | localhost:9092 (host) / kafka:29092 (docker network)   |
+| Kafka UI  | http://localhost:8090                                  |
+
+Copy `.env.example` to `.env` and fill in Alpaca/Alpha Vantage keys, then run the
+producers from the repo root (see [docs/streaming_interface.md](docs/streaming_interface.md)
+for the full topic/schema contract):
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python streaming/producers/market_events_producer.py
+python streaming/producers/analyst_ratings_producer.py
+```
+
+Set `STREAM_MODE=replay` in `.env` to run both producers without live market hours
+or API keys.
+
+### 4. Start orchestration (when ready)
+
+```bash
 cd ../orchestration && docker compose up -d
 ```
 
-### 4. Stop
+### 5. Stop
 
 ```bash
 cd processing && docker compose down
+cd ../streaming && docker compose down
 ```
 
 ## Git workflow
