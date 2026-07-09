@@ -71,6 +71,8 @@ processing/notebooks/*
 # IDE & OS
 .idea/
 .vscode/
+.claude/
+AAPL.csv
 *.swp
 *.swo
 *~
