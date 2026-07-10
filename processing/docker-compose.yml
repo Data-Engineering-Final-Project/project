@@ -50,6 +50,11 @@ services:
       AWS_REGION: us-east-1
     ports:
       - "8000:8000"
+    # api.py deliberately exits (os._exit) if it detects its SparkSession's
+    # JVM died -- restarting the whole process for a fresh session is more
+    # reliable than trying to rebuild a PySpark session in-process. This
+    # policy is what actually completes that recovery.
+    restart: unless-stopped
     # Bypass the base image's entrypoint.sh entirely -- it unconditionally
     # starts a full standalone Spark master/worker/history-server/thrift-server
     # before running anything else, ~1GB+ of memory this lightweight query API

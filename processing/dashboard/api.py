@@ -9,6 +9,7 @@ dashboard-api service):
     python3 /home/iceberg/dashboard/api.py
 """
 
+import os
 import pickle
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,30 @@ spark.sparkContext.setLogLevel("WARN")
 _model_cache = None
 
 
+def run_query(sql_text: str):
+    """spark.sql(...).collect(), with one specific failure mode handled
+    deliberately: the JVM backing this long-lived SparkSession can die
+    (observed in practice under memory pressure) while this Python process
+    keeps running, so every subsequent query fails with a Py4J connection
+    error even though nothing is wrong with the query itself.
+
+    PySpark sessions aren't designed to be rebuilt cleanly inside the same
+    interpreter (the driver's internal state stays half-wired to the dead
+    JVM), so patching this up in-process is the fragile path. Restarting
+    the whole process and letting Docker's `restart: unless-stopped` bring
+    up a fresh container with a fresh SparkSession is the same fix real
+    infra uses for "a stateful dependency wedged" -- fail fast, come back
+    clean, rather than accumulate patched-up state.
+    """
+    try:
+        return spark.sql(sql_text).collect()
+    except Exception as e:
+        if "Connection refused" in str(e) or "Py4J" in type(e).__name__:
+            print(f"[FATAL] Spark JVM connection lost ({e!r}); exiting for a clean restart", flush=True)
+            os._exit(1)
+        raise
+
+
 def get_model():
     global _model_cache
     if _model_cache is None:
@@ -43,8 +68,8 @@ def get_model():
 app = FastAPI(title="Volumetric Anomaly Detection Dashboard")
 
 
-def rows_to_dicts(df):
-    return [row.asDict() for row in df.collect()]
+def rows_to_dicts(rows):
+    return [row.asDict() for row in rows]
 
 
 def date_range_clause(column: str, start_date: Optional[str], end_date: Optional[str]) -> str:
@@ -70,7 +95,7 @@ def date_range_clause(column: str, start_date: Optional[str], end_date: Optional
 @app.get("/api/sector-heatmap")
 def sector_heatmap(start_date: Optional[str] = None, end_date: Optional[str] = None):
     where = date_range_clause("f.event_time", start_date, end_date)
-    df = spark.sql(f"""
+    rows = run_query(f"""
         SELECT s.sector,
                avg(f.volume_ratio) AS avg_volume_ratio,
                count(*) AS anomaly_count
@@ -80,13 +105,13 @@ def sector_heatmap(start_date: Optional[str] = None, end_date: Optional[str] = N
         GROUP BY s.sector
         ORDER BY avg_volume_ratio DESC
     """)
-    return rows_to_dicts(df)
+    return rows_to_dicts(rows)
 
 
 @app.get("/api/top-spikes")
 def top_spikes(limit: int = 10, start_date: Optional[str] = None, end_date: Optional[str] = None):
     where = date_range_clause("f.event_time", start_date, end_date)
-    df = spark.sql(f"""
+    rows = run_query(f"""
         SELECT f.ticker, s.company_name, s.sector, f.event_time,
                f.volume_ratio, f.rsi_value, f.target_label
         FROM demo.gold.fact_volumetric_anomalies f
@@ -95,7 +120,7 @@ def top_spikes(limit: int = 10, start_date: Optional[str] = None, end_date: Opti
         ORDER BY f.volume_ratio DESC
         LIMIT {limit}
     """)
-    return rows_to_dicts(df)
+    return rows_to_dicts(rows)
 
 
 @app.get("/api/predict/{ticker}")
@@ -103,14 +128,13 @@ def predict(ticker: str):
     cached = get_model()
     model, features = cached["model"], cached["features"]
 
-    df = spark.sql(f"""
+    rows = run_query(f"""
         SELECT {", ".join(features)}
         FROM demo.gold.fact_volumetric_anomalies
         WHERE ticker = '{ticker.upper()}'
         ORDER BY event_time DESC
         LIMIT 1
     """)
-    rows = df.collect()
     if not rows:
         raise HTTPException(status_code=404, detail=f"No anomaly data for {ticker}")
 
@@ -130,7 +154,7 @@ def predict(ticker: str):
 @app.get("/api/late-arrivals")
 def late_arrivals(limit: int = 20, start_date: Optional[str] = None, end_date: Optional[str] = None):
     where = date_range_clause("event_time", start_date, end_date)
-    df = spark.sql(f"""
+    rows = run_query(f"""
         SELECT ticker, event_time, arrival_time,
                (unix_timestamp(arrival_time) - unix_timestamp(event_time)) / 3600.0 AS delay_hours,
                rating_text, sentiment_score
@@ -139,7 +163,7 @@ def late_arrivals(limit: int = 20, start_date: Optional[str] = None, end_date: O
         ORDER BY arrival_time DESC
         LIMIT {limit}
     """)
-    return rows_to_dicts(df)
+    return rows_to_dicts(rows)
 
 
 @app.get("/api/live-feed")
@@ -158,14 +182,14 @@ def live_feed(limit: int = 30):
     # them, taking long enough to feel broken under memory pressure. Filtering
     # on event_time lets Iceberg prune files by their min/max stats instead of
     # touching the whole table.
-    df = spark.sql(f"""
+    rows = run_query(f"""
         SELECT ticker, event_time, price, volume
         FROM demo.bronze.bronze_market_events
         WHERE price > 0 AND event_time > current_timestamp() - INTERVAL 10 MINUTES
         ORDER BY event_time DESC
         LIMIT {limit}
     """)
-    return rows_to_dicts(df)
+    return rows_to_dicts(rows)
 
 
 app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
