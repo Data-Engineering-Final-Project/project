@@ -19,9 +19,18 @@ services:
       AWS_REGION: us-east-1
     ports:
       - "8888:8888"
-      - "8080:8080"
-      - "10000:10000"
-      - "10001:10001"
+    # Same root cause as dashboard-api below, found later: the base image's
+    # entrypoint.sh unconditionally starts a full standalone Spark
+    # master/worker/history-server/thrift-server that nothing here actually
+    # uses -- every job runs in local mode via `docker exec ... spark-submit`,
+    # nothing points at spark://spark-iceberg:7077. That's ~1GB+ of pure
+    # waste, running the whole time, on top of the same waste in
+    # dashboard-api -- the real reason the streaming consumer (also running
+    # in this container) kept getting OOM-killed throughout a long session,
+    # not anything wrong with the consumer itself. Skips straight to
+    # /bin/notebook (still keeps Jupyter, unlike dashboard-api which needs
+    # neither notebook nor the cluster services).
+    entrypoint: ["/bin/notebook"]
 
   dashboard-api:
     build: .
