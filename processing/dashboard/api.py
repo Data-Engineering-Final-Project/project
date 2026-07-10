@@ -10,7 +10,9 @@ dashboard-api service):
 """
 
 import pickle
+from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -45,14 +47,36 @@ def rows_to_dicts(df):
     return [row.asDict() for row in df.collect()]
 
 
+def date_range_clause(column: str, start_date: Optional[str], end_date: Optional[str]) -> str:
+    """Builds a `WHERE`-ready SQL fragment from optional YYYY-MM-DD strings.
+
+    No filter (default) means "show everything currently in the table" --
+    same as before this feature existed. Rejects anything that doesn't parse
+    as a plain date rather than interpolating user input directly into SQL.
+    """
+    clauses = []
+    try:
+        if start_date:
+            datetime.strptime(start_date, "%Y-%m-%d")  # raises ValueError if malformed
+            clauses.append(f"{column} >= TIMESTAMP '{start_date} 00:00:00'")
+        if end_date:
+            datetime.strptime(end_date, "%Y-%m-%d")
+            clauses.append(f"{column} <= TIMESTAMP '{end_date} 23:59:59'")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD")
+    return (" AND " + " AND ".join(clauses)) if clauses else ""
+
+
 @app.get("/api/sector-heatmap")
-def sector_heatmap():
-    df = spark.sql("""
+def sector_heatmap(start_date: Optional[str] = None, end_date: Optional[str] = None):
+    where = date_range_clause("f.event_time", start_date, end_date)
+    df = spark.sql(f"""
         SELECT s.sector,
                avg(f.volume_ratio) AS avg_volume_ratio,
                count(*) AS anomaly_count
         FROM demo.gold.fact_volumetric_anomalies f
         JOIN demo.gold.dim_stocks s ON f.ticker = s.ticker
+        WHERE 1=1 {where}
         GROUP BY s.sector
         ORDER BY avg_volume_ratio DESC
     """)
@@ -60,12 +84,14 @@ def sector_heatmap():
 
 
 @app.get("/api/top-spikes")
-def top_spikes(limit: int = 10):
+def top_spikes(limit: int = 10, start_date: Optional[str] = None, end_date: Optional[str] = None):
+    where = date_range_clause("f.event_time", start_date, end_date)
     df = spark.sql(f"""
         SELECT f.ticker, s.company_name, s.sector, f.event_time,
                f.volume_ratio, f.rsi_value, f.target_label
         FROM demo.gold.fact_volumetric_anomalies f
         JOIN demo.gold.dim_stocks s ON f.ticker = s.ticker
+        WHERE 1=1 {where}
         ORDER BY f.volume_ratio DESC
         LIMIT {limit}
     """)
@@ -102,12 +128,14 @@ def predict(ticker: str):
 
 
 @app.get("/api/late-arrivals")
-def late_arrivals(limit: int = 20):
+def late_arrivals(limit: int = 20, start_date: Optional[str] = None, end_date: Optional[str] = None):
+    where = date_range_clause("event_time", start_date, end_date)
     df = spark.sql(f"""
         SELECT ticker, event_time, arrival_time,
                (unix_timestamp(arrival_time) - unix_timestamp(event_time)) / 3600.0 AS delay_hours,
                rating_text, sentiment_score
         FROM demo.silver.silver_analyst_ratings
+        WHERE 1=1 {where}
         ORDER BY arrival_time DESC
         LIMIT {limit}
     """)
