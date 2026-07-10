@@ -37,6 +37,25 @@ header h1 {
   color: var(--accent);
 }
 
+.header-subtitle {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  margin-top: 2px;
+  letter-spacing: 0.02em;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.shenkar-logo {
+  height: 28px;
+  width: auto;
+}
+
 .live-indicator {
   display: flex;
   align-items: center;
