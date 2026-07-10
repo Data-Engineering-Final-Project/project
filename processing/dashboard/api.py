@@ -116,10 +116,24 @@ def late_arrivals(limit: int = 20):
 
 @app.get("/api/live-feed")
 def live_feed(limit: int = 30):
+    # Reads bronze, not silver -- bronze_ingest_streams.py appends every few
+    # seconds as ticks arrive on Kafka, while silver_market_prices only
+    # refreshes on Airflow's ~15min batch cycle. This is the one panel that
+    # should visibly move second-to-second; the others legitimately reflect
+    # the last batch run.
+    #
+    # The `event_time > now() - 10 minutes` filter isn't just semantically
+    # correct for a "live feed" (hour-old ticks aren't live) -- it's load
+    # bearing. Continuous append-only streaming writes accumulate many small
+    # Iceberg files over hours of uptime (thousands after a long-running demo
+    # session), and an unfiltered ORDER BY had to plan a scan across all of
+    # them, taking long enough to feel broken under memory pressure. Filtering
+    # on event_time lets Iceberg prune files by their min/max stats instead of
+    # touching the whole table.
     df = spark.sql(f"""
         SELECT ticker, event_time, price, volume
-        FROM demo.silver.silver_market_prices
-        WHERE is_valid = true
+        FROM demo.bronze.bronze_market_events
+        WHERE price > 0 AND event_time > current_timestamp() - INTERVAL 10 MINUTES
         ORDER BY event_time DESC
         LIMIT {limit}
     """)

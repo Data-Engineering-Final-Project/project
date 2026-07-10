@@ -41,11 +41,15 @@ services:
       AWS_REGION: us-east-1
     ports:
       - "8000:8000"
-    # The base image's entrypoint.sh only does `eval "$1"` -- a list-form
-    # command like ["python3", "path"] silently drops everything past $1
-    # (runs a bare `python3` REPL that exits immediately on EOF). Must be
-    # one string so $1 contains the full command line.
-    command: ["python3 /home/iceberg/dashboard/api.py"]
+    # Bypass the base image's entrypoint.sh entirely -- it unconditionally
+    # starts a full standalone Spark master/worker/history-server/thrift-server
+    # before running anything else, ~1GB+ of memory this lightweight query API
+    # doesn't need (it only ever runs local-mode spark.sql() calls). Running
+    # that redundant baseline alongside spark-iceberg's own copy is what
+    # pushed total memory usage into OOM-kill territory under Docker Desktop's
+    # default resource limits -- verified by watching `docker stats` and
+    # correlating with an exit-137 kill on a concurrent Airflow task.
+    entrypoint: ["python3", "/home/iceberg/dashboard/api.py"]
 
   rest:
     image: apache/iceberg-rest-fixture
