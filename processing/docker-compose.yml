@@ -23,6 +23,30 @@ services:
       - "10000:10000"
       - "10001:10001"
 
+  dashboard-api:
+    build: .
+    container_name: dashboard-api
+    networks:
+      - data_pipeline_network
+    depends_on:
+      - rest
+      - minio
+    volumes:
+      - ./warehouse:/home/iceberg/warehouse
+      - ./dashboard:/home/iceberg/dashboard
+      - ./conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+    environment:
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: supersecret
+      AWS_REGION: us-east-1
+    ports:
+      - "8000:8000"
+    # The base image's entrypoint.sh only does `eval "$1"` -- a list-form
+    # command like ["python3", "path"] silently drops everything past $1
+    # (runs a bare `python3` REPL that exits immediately on EOF). Must be
+    # one string so $1 contains the full command line.
+    command: ["python3 /home/iceberg/dashboard/api.py"]
+
   rest:
     image: apache/iceberg-rest-fixture
     container_name: iceberg-rest
