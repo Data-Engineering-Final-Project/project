@@ -21,14 +21,12 @@ Full write-up of the business question, data sources, and data model is in
 
 ## Prerequisites
 
-- Docker & Docker Compose v2, with at least ~8GB memory allocated (Docker
-  Desktop's default is close to this; the full stack — Kafka, 2 producers,
-  Airflow, MinIO, Spark, the dashboard — is comfortable for a normal demo
-  session, but running everything continuously for many hours can accumulate
-  enough JVM memory growth to trip the OOM killer. `ensure_streaming_running`
-  self-heals the streaming consumer every 15 minutes if that happens, so it's
-  not something you need to watch for, just something to know if a container
-  restarts on its own after a long stretch)
+- Docker & Docker Compose v2 (Docker Desktop's default memory allocation is
+  fine — the full stack, Kafka, 2 producers, Airflow, MinIO, Spark, the
+  dashboard, uses well under half of a default 7.75GB allocation. It briefly
+  didn't during development, until `spark-iceberg`/`dashboard-api` were found
+  to be running an unused standalone Spark cluster baseline they never
+  actually needed — see `docs/processing_interface.md` if curious)
 - Git
 
 No host Python setup is required to see the pipeline run end-to-end — every
@@ -59,9 +57,12 @@ docker compose up -d --build
 |-------------------|------------------------------|
 | MinIO API         | http://localhost:9000        |
 | MinIO Console     | http://localhost:9001        |
-| Spark UI          | http://localhost:8080        |
 | Jupyter Notebook  | http://localhost:8888        |
 | Iceberg REST      | http://localhost:8181        |
+
+(No standalone Spark master/worker UI or Thrift server — they were never
+used, spark-defaults.conf runs every job in local mode, and running that
+unused baseline continuously was consuming ~1.1GB for nothing.)
 
 MinIO credentials: `admin` / `supersecret` — bucket `warehouse` is created automatically.
 

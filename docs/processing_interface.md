@@ -111,20 +111,29 @@ docker exec spark-iceberg spark-sql -e "SELECT * FROM demo.gold.fact_volumetric_
   Hadoop-recognized filesystem for the same path, and this image doesn't ship
   `hadoop-aws` to reconcile the two). MERGE INTO by natural key gets the same
   idempotent, late-data-safe result without that dependency.
-- **Memory**: the full stack (Kafka, 2 producers, Airflow x2, MinIO, Spark,
-  dashboard-api) is comfortable under Docker Desktop's default memory limit
-  for a normal demo session, but running everything continuously for many
-  hours accumulates enough JVM heap growth across containers that the OOM
-  killer can start picking off containers — this happened to Kafka itself
-  during a long stress-testing session while building this. `ensure_streaming_running`'s
-  15-minute Airflow cycle self-heals the streaming consumer automatically if
-  this happens, no manual intervention needed, but bumping Docker Desktop's
-  memory allocation above the ~7.75GB default avoids it entirely.
-- `dashboard-api` must override `entrypoint` (not just `command`) to skip the
-  base image's `entrypoint.sh` — that script unconditionally starts a full
-  standalone Spark master/worker/history-server/thrift-server before running
-  anything, ~1.4GB of overhead a lightweight query API never needs. Also,
-  that script only does `eval "$1"`, so a list-form `command: ["python3", "path"]`
+- **Memory — the big one.** The base image's `entrypoint.sh` unconditionally
+  starts a full standalone Spark master/worker/history-server/thrift-server
+  before running anything else. Nothing in this project uses them —
+  `spark-defaults.conf` never sets `spark.master` to
+  `spark://spark-iceberg:7077`, every job runs in local mode via
+  `docker exec ... spark-submit`. That unused baseline was costing ~1.1GB in
+  `spark-iceberg` and ~1.4GB in `dashboard-api`, continuously, for nothing.
+  Under Docker Desktop's default ~7.75GB, running the full stack (Kafka, 2
+  producers, Airflow x2, MinIO, both Spark containers) for a long stretch
+  pushed total usage past 85%, and the OOM killer started picking off
+  containers — including Kafka itself once, and the streaming consumer
+  repeatedly (it runs inside `spark-iceberg`, so it was the first casualty
+  of that container's own bloat, not a bug in the consumer or in how it's
+  detached). Both services now override `entrypoint` to skip
+  `entrypoint.sh` — `spark-iceberg` goes straight to `/bin/notebook` (keeps
+  Jupyter, which is genuinely used, skips the rest), `dashboard-api` skips
+  straight to the API process (needs neither). Verified: `spark-iceberg`
+  dropped from 1.148GB to 78MB, `dashboard-api` from ~1.4GB to ~300MB, total
+  stack from ~6.75GB to ~4GB, and the streaming consumer has stayed alive
+  continuously since with batch offsets climbing normally.
+- Overriding `command` alone isn't enough to bypass `entrypoint.sh` — that
+  script only does `eval "$1"`, so a list-form `command: ["python3", "path"]`
   silently drops everything past the first element (runs a bare REPL that
-  exits immediately) — must be passed as one string, or via `entrypoint` as
-  done here.
+  exits immediately on EOF, clean exit 0, no error). Must be either one
+  string (`command: ["python3 path"]`) or, better, override `entrypoint`
+  directly to skip the script's own startup logic entirely.
