@@ -62,8 +62,25 @@ the same `--packages` flag on the streaming job only.
 | silver | `silver_historical_stats`       | `bronze_to_silver.py`          |
 | silver | `silver_market_prices`          | `bronze_to_silver.py`          |
 | silver | `silver_analyst_ratings`        | `bronze_to_silver.py`          |
+| gold   | `dim_stocks`                    | `seed_dim_stocks.py` (one-time)|
 | gold   | `dim_analyst_coverage` (SCD2)   | `silver_to_gold.py`            |
 | gold   | `fact_volumetric_anomalies`     | `silver_to_gold.py`            |
+
+## Dashboard
+
+`processing/dashboard/` — FastAPI + a persistent SparkSession, backing the
+four presentation panels plus a live ticker strip, served at
+**http://localhost:8000**. It's a service in `processing/docker-compose.yml`
+(`dashboard-api`), starts automatically with the rest of the processing stack.
+
+```bash
+# one-time: seed the sector reference table and train the model
+docker exec spark-iceberg python3 /home/iceberg/jobs/seed_dim_stocks.py
+docker exec spark-iceberg python3 /home/iceberg/jobs/train_model.py
+```
+
+Endpoints: `/api/sector-heatmap`, `/api/top-spikes`, `/api/predict/{ticker}`,
+`/api/late-arrivals`, `/api/live-feed`.
 
 Query any of them via `spark-sql`, e.g.:
 
@@ -94,3 +111,20 @@ docker exec spark-iceberg spark-sql -e "SELECT * FROM demo.gold.fact_volumetric_
   Hadoop-recognized filesystem for the same path, and this image doesn't ship
   `hadoop-aws` to reconcile the two). MERGE INTO by natural key gets the same
   idempotent, late-data-safe result without that dependency.
+- **Memory**: the full stack (Kafka, 2 producers, Airflow x2, MinIO, Spark,
+  dashboard-api) is comfortable under Docker Desktop's default memory limit
+  for a normal demo session, but running everything continuously for many
+  hours accumulates enough JVM heap growth across containers that the OOM
+  killer can start picking off containers — this happened to Kafka itself
+  during a long stress-testing session while building this. `ensure_streaming_running`'s
+  15-minute Airflow cycle self-heals the streaming consumer automatically if
+  this happens, no manual intervention needed, but bumping Docker Desktop's
+  memory allocation above the ~7.75GB default avoids it entirely.
+- `dashboard-api` must override `entrypoint` (not just `command`) to skip the
+  base image's `entrypoint.sh` — that script unconditionally starts a full
+  standalone Spark master/worker/history-server/thrift-server before running
+  anything, ~1.4GB of overhead a lightweight query API never needs. Also,
+  that script only does `eval "$1"`, so a list-form `command: ["python3", "path"]`
+  silently drops everything past the first element (runs a bare REPL that
+  exits immediately) — must be passed as one string, or via `entrypoint` as
+  done here.

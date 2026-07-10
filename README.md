@@ -21,7 +21,14 @@ Full write-up of the business question, data sources, and data model is in
 
 ## Prerequisites
 
-- Docker & Docker Compose v2
+- Docker & Docker Compose v2, with at least ~8GB memory allocated (Docker
+  Desktop's default is close to this; the full stack — Kafka, 2 producers,
+  Airflow, MinIO, Spark, the dashboard — is comfortable for a normal demo
+  session, but running everything continuously for many hours can accumulate
+  enough JVM memory growth to trip the OOM killer. `ensure_streaming_running`
+  self-heals the streaming consumer every 15 minutes if that happens, so it's
+  not something you need to watch for, just something to know if a container
+  restarts on its own after a long stretch)
 - Git
 
 No host Python setup is required to see the pipeline run end-to-end — every
@@ -79,6 +86,17 @@ Check the results at any time:
 
 ```bash
 docker exec spark-iceberg spark-sql -e "SELECT * FROM demo.gold.fact_volumetric_anomalies LIMIT 10;"
+```
+
+**Live dashboard** — http://localhost:8000, starts automatically with this
+stack (`dashboard-api` service). Matches the four panels from the
+presentation (sector heatmap, top volume spikes, ML price predictor, late
+arrivals timeline) plus a live ticker strip, all polling every 5s. One-time
+setup before it has data to show:
+
+```bash
+docker exec spark-iceberg python3 /home/iceberg/jobs/seed_dim_stocks.py
+docker exec spark-iceberg python3 /home/iceberg/jobs/train_model.py
 ```
 
 ### 3. Start the streaming stack (Kafka + producers)
