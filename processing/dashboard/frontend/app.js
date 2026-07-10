@@ -11,39 +11,6 @@ async function fetchJSON(url) {
   return res.json();
 }
 
-// Date filter: applies to the heatmap/spikes/timeline panels (anything
-// aggregating historical anomalies). Not applied to the live ticker strip
-// or the predictor -- "latest state" is what those mean regardless of
-// which period you're inspecting elsewhere on the page.
-let activeFilter = { start: null, end: null };
-
-function dateParams() {
-  const parts = [];
-  if (activeFilter.start) parts.push(`start_date=${activeFilter.start}`);
-  if (activeFilter.end) parts.push(`end_date=${activeFilter.end}`);
-  return parts.length ? "&" + parts.join("&") : "";
-}
-
-function initFilterBar() {
-  document.getElementById("filter-apply").addEventListener("click", () => {
-    const start = document.getElementById("filter-start").value;
-    const end = document.getElementById("filter-end").value;
-    if (!start && !end) return;
-    activeFilter = { start: start || null, end: end || null };
-    document.getElementById("filter-status").textContent =
-      `Showing ${start || "the beginning"} to ${end || "now"}`;
-    updateHeatmap(); updateSpikes(); updateTimeline();
-  });
-
-  document.getElementById("filter-reset").addEventListener("click", () => {
-    activeFilter = { start: null, end: null };
-    document.getElementById("filter-start").value = "";
-    document.getElementById("filter-end").value = "";
-    document.getElementById("filter-status").textContent = "Showing all-time data";
-    updateHeatmap(); updateSpikes(); updateTimeline();
-  });
-}
-
 function fmt(n, decimals = 2) {
   return typeof n === "number" ? n.toFixed(decimals) : "—";
 }
@@ -72,7 +39,7 @@ async function updateTickerStrip() {
 async function updateHeatmap() {
   const el = document.getElementById("heatmap");
   try {
-    const rows = await fetchJSON("/api/sector-heatmap?_=1" + dateParams());
+    const rows = await fetchJSON("/api/sector-heatmap");
     if (!rows.length) { el.innerHTML = `<div class="empty">No anomalies yet</div>`; return; }
     const ratios = rows.map(r => r.avg_volume_ratio);
     const min = Math.min(...ratios), max = Math.max(...ratios);
@@ -96,7 +63,7 @@ async function updateHeatmap() {
 async function updateSpikes() {
   const tbody = document.querySelector("#spikes-table tbody");
   try {
-    const rows = await fetchJSON("/api/top-spikes?limit=10" + dateParams());
+    const rows = await fetchJSON("/api/top-spikes?limit=10");
     tbody.innerHTML = rows.map(r => `
       <tr>
         <td><b>${r.ticker}</b></td>
@@ -114,7 +81,7 @@ async function updateSpikes() {
 async function updateTimeline() {
   const el = document.getElementById("timeline");
   try {
-    const rows = await fetchJSON("/api/late-arrivals?limit=8" + dateParams());
+    const rows = await fetchJSON("/api/late-arrivals?limit=8");
     if (!rows.length) { el.innerHTML = `<div class="empty">No ratings yet</div>`; return; }
     el.innerHTML = rows.map(r => `
       <div class="timeline-item">
@@ -162,7 +129,6 @@ function refreshAll() {
 }
 
 initTickerSelect();
-initFilterBar();
 updatePredictor(TICKERS[0]);
 refreshAll();
 setInterval(refreshAll, POLL_MS);
