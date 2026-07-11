@@ -18,14 +18,21 @@ bronze_ingest_streams.py   (streaming, long-running — Kafka -> bronze)
         ▼
 bronze_to_silver.py        (batch, schedule periodically, e.g. every 5-15 min)
         │
-        ▼
-silver_to_gold.py          (batch, schedule after bronze_to_silver completes)
+        ├──────────────┐
+        ▼              ▼
+silver_to_gold.py  maintain_tables.py  (batch, same schedule — compacts +
+                                         expires snapshots on the two
+                                         streaming bronze tables)
 ```
 
 `bronze_ingest_streams.py` is the one genuinely continuous job — everything else
 is a batch step meant to be triggered on a schedule (Airflow `SparkSubmitOperator`
 or equivalent), consistent with the project spec's split between "Stream
 Processing" (Kafka → bronze) and "Batch Processing" (bronze → silver → gold ETL).
+
+`maintain_tables.py` runs alongside `silver_to_gold.py` (both depend only on
+`bronze_to_silver.py` having read the bronze tables, not on each other) — see
+"Notable infra fixes" below for why it exists.
 
 ## spark-submit commands
 

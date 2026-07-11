@@ -11,6 +11,19 @@ in the base image):
 Each topic gets its own append-only streaming write, no watermarking here —
 bronze is the raw, as-is landing zone. Watermarking and lateness handling
 happen in bronze_to_silver.py.
+
+Uses a 30s processing-time trigger, not the default "as fast as possible"
+trigger. Without an explicit trigger, this commits (and creates a new
+Iceberg snapshot + manifest + often a brand new tiny data file) on every
+micro-batch, which for continuously-producing Kafka producers means a new
+commit every few hundred milliseconds. Left running for the better part of
+a day, that produced 20,000+ metadata files and 8,000+ tiny data files on
+this table alone (measured directly against the warehouse's MinIO storage),
+which is what was making every query slow, bloating iceberg-rest's memory
+until it got OOM-killed, and generally making the whole stack flaky. A 30s
+batching window still updates the dashboard's "live" feed well within its
+own 5s poll / 10min freshness window, just without generating a commit
+per tick.
 """
 
 from pyspark.sql import SparkSession
@@ -18,6 +31,7 @@ from pyspark.sql.functions import col, current_timestamp, from_json
 from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType, TimestampType
 
 KAFKA_BOOTSTRAP_SERVERS = "kafka:29092"  # internal listener, same docker network
+TRIGGER_INTERVAL = "30 seconds"
 
 MARKET_EVENTS_SCHEMA = StructType([
     StructField("event_id", StringType()),
@@ -62,6 +76,7 @@ def main():
         market_events.writeStream
         .format("iceberg")
         .outputMode("append")
+        .trigger(processingTime=TRIGGER_INTERVAL)
         .option("checkpointLocation", "/home/iceberg/warehouse/_checkpoints/bronze_market_events")
         .toTable("demo.bronze.bronze_market_events")
     )
@@ -70,6 +85,7 @@ def main():
         analyst_ratings.writeStream
         .format("iceberg")
         .outputMode("append")
+        .trigger(processingTime=TRIGGER_INTERVAL)
         .option("checkpointLocation", "/home/iceberg/warehouse/_checkpoints/bronze_analyst_ratings")
         .toTable("demo.bronze.bronze_analyst_ratings")
     )

@@ -104,4 +104,20 @@ with DAG(
         ),
     )
 
-    [ensure_streaming_running, ingest_yahoo_batch] >> bronze_to_silver >> silver_to_gold
+    # Compacts small files and expires old snapshots on the two streaming
+    # bronze tables. Runs every cycle (every 15 minutes) rather than on a
+    # separate, longer schedule -- the job itself is cheap (a few seconds on
+    # this data volume) and running it often is what keeps the table's file
+    # and snapshot count bounded instead of letting it grow between runs.
+    # See processing/jobs/maintain_tables.py for why this exists: without it,
+    # unthrottled streaming commits accumulated 20,000+ metadata files in
+    # under a day and OOM-killed the Iceberg REST catalog.
+    maintain_tables = BashOperator(
+        task_id="maintain_tables",
+        bash_command=(
+            f"docker exec {SPARK_CONTAINER} "
+            f"spark-submit /home/iceberg/jobs/maintain_tables.py"
+        ),
+    )
+
+    [ensure_streaming_running, ingest_yahoo_batch] >> bronze_to_silver >> [silver_to_gold, maintain_tables]
