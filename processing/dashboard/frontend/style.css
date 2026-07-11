@@ -56,6 +56,25 @@ header h1 {
   width: auto;
 }
 
+.freshness {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  line-height: 1.4;
+}
+
+.freshness-row span:first-child {
+  margin-right: 6px;
+}
+
+.freshness-row .fresh-value {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .live-indicator {
   display: flex;
   align-items: center;

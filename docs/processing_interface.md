@@ -87,7 +87,15 @@ docker exec spark-iceberg python3 /home/iceberg/jobs/train_model.py
 ```
 
 Endpoints: `/api/sector-heatmap`, `/api/top-spikes`, `/api/predict/{ticker}`,
-`/api/late-arrivals`, `/api/live-feed`.
+`/api/late-arrivals`, `/api/live-feed`, `/api/last-updated`.
+
+`/api/last-updated` backs the small freshness indicator in the header —
+reports `live_feed_as_of` (latest bronze streaming event, effectively
+real-time) and `analytics_as_of` (latest event reflected in the gold
+`fact_volumetric_anomalies` table) separately, since they're on genuinely
+different refresh cadences and blending them into one timestamp would be
+misleading: the gold layer is derived from Yahoo Finance daily bars, which
+only change once a day at most, not every 15-minute Airflow cycle.
 
 Query any of them via `spark-sql`, e.g.:
 

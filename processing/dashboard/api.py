@@ -164,6 +164,34 @@ def live_feed(limit: int = 30):
     return rows_to_dicts(rows)
 
 
+@app.get("/api/last-updated")
+def last_updated():
+    """How current the data behind the dashboard actually is, split by layer
+    -- the live ticker strip reflects the continuous streaming write into
+    bronze, while the heatmap/spikes/predictor panels only move when
+    Airflow's ~15min batch chain refreshes the gold tables. Blending these
+    into a single number would misrepresent how fresh those panels are, so
+    both are reported separately.
+
+    Same event_time window filter as /api/live-feed on the bronze query --
+    load-bearing for Iceberg file pruning, not just semantics (see that
+    endpoint's comment).
+    """
+    live = run_query("""
+        SELECT max(event_time) AS latest
+        FROM demo.bronze.bronze_market_events
+        WHERE event_time > current_timestamp() - INTERVAL 10 MINUTES
+    """)
+    gold = run_query("""
+        SELECT max(event_time) AS latest
+        FROM demo.gold.fact_volumetric_anomalies
+    """)
+    return {
+        "live_feed_as_of": live[0]["latest"] if live else None,
+        "analytics_as_of": gold[0]["latest"] if gold else None,
+    }
+
+
 app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
 

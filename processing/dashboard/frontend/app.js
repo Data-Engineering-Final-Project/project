@@ -19,7 +19,8 @@ function timeAgo(iso) {
   const seconds = Math.max(0, (Date.now() - new Date(iso + "Z")) / 1000);
   if (seconds < 60) return `${Math.round(seconds)}s ago`;
   if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
-  return `${Math.round(seconds / 3600)}h ago`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`;
+  return `${Math.round(seconds / 86400)}d ago`;
 }
 
 // ---- Ticker strip (live feed) ----
@@ -32,6 +33,22 @@ async function updateTickerStrip() {
     `).join("");
   } catch (e) {
     el.innerHTML = `<span class="error">live feed unavailable</span>`;
+  }
+}
+
+// ---- Data freshness ----
+async function updateFreshness() {
+  const el = document.getElementById("freshness");
+  try {
+    const r = await fetchJSON("/api/last-updated");
+    const live = r.live_feed_as_of ? timeAgo(r.live_feed_as_of) : "no data";
+    const analytics = r.analytics_as_of ? timeAgo(r.analytics_as_of) : "no data";
+    el.innerHTML = `
+      <div class="freshness-row"><span>Live feed</span><span class="fresh-value">${live}</span></div>
+      <div class="freshness-row"><span>Analytics</span><span class="fresh-value">${analytics}</span></div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<span class="error">freshness unavailable</span>`;
   }
 }
 
@@ -126,6 +143,7 @@ function refreshAll() {
   updateHeatmap();
   updateSpikes();
   updateTimeline();
+  updateFreshness();
 }
 
 initTickerSelect();
