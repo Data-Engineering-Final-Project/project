@@ -11,6 +11,7 @@ dashboard-api service):
 
 import os
 import pickle
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -20,27 +21,65 @@ from pyspark.sql import SparkSession
 MODEL_PATH = "/home/iceberg/warehouse/models/anomaly_predictor.pkl"
 FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 
-spark = SparkSession.builder.appName("dashboard_api").getOrCreate()
+# Found this process sitting at 2.23GB after ~2 weeks of uninterrupted
+# uptime (started around 300MB right after the entrypoint/memory fix). A
+# long-lived local-mode Spark driver polled every 5s for weeks accumulates
+# query execution history, cached plans, etc. that never gets fully
+# reclaimed -- normal for a process that's never meant to run indefinitely
+# without a restart. That growth was a real contributor to a stack-wide OOM
+# event that killed the Kafka container outright (see streaming/docker-compose.yml).
+# Recycling once a day is cheap (a few seconds of downtime, `restart:
+# unless-stopped` brings a fresh SparkSession right back) and keeps memory
+# bounded instead of trusting it never grows enough to matter.
+MAX_UPTIME_SECONDS = 24 * 60 * 60
+_start_time = time.monotonic()
+
+spark = (
+    SparkSession.builder.appName("dashboard_api")
+    # Iceberg's REST catalog client wraps tables in a CachingCatalog with no
+    # default expiration (cache-enabled defaults to true, with no TTL set).
+    # For a one-shot batch job that's irrelevant, but this process holds one
+    # SparkSession for its entire lifetime -- caught this directly: after
+    # restarting dashboard-api at a moment when bronze_market_events had no
+    # recent rows (the streaming consumer was mid-recovery from a separate
+    # Kafka outage), it kept returning empty/stale results from
+    # /api/live-feed for the rest of its life, even minutes later once the
+    # consumer was healthy and thousands of fresh rows had landed -- because
+    # the very first table lookup got cached and nothing ever told Spark to
+    # look again. A brand-new process picked the same data up immediately,
+    # confirming it's this cache, not the query or the underlying data.
+    # Disabling it costs a bit of REST-catalog metadata traffic per query
+    # (irrelevant at this poll volume); correctness for a page whose whole
+    # point is showing current data matters more.
+    .config("spark.sql.catalog.demo.cache-enabled", "false")
+    .getOrCreate()
+)
 spark.sparkContext.setLogLevel("WARN")
 
 _model_cache = None
 
 
 def run_query(sql_text: str):
-    """spark.sql(...).collect(), with one specific failure mode handled
-    deliberately: the JVM backing this long-lived SparkSession can die
-    (observed in practice under memory pressure) while this Python process
-    keeps running, so every subsequent query fails with a Py4J connection
-    error even though nothing is wrong with the query itself.
+    """spark.sql(...).collect(), with two deliberate exit conditions that
+    both resolve the same way -- fail fast and let Docker's `restart:
+    unless-stopped` bring up a fresh process with a fresh SparkSession,
+    rather than trying to patch up state in-process:
 
-    PySpark sessions aren't designed to be rebuilt cleanly inside the same
-    interpreter (the driver's internal state stays half-wired to the dead
-    JVM), so patching this up in-process is the fragile path. Restarting
-    the whole process and letting Docker's `restart: unless-stopped` bring
-    up a fresh container with a fresh SparkSession is the same fix real
-    infra uses for "a stateful dependency wedged" -- fail fast, come back
-    clean, rather than accumulate patched-up state.
+    1. The JVM backing this long-lived SparkSession can die outright
+       (observed in practice under memory pressure), so every subsequent
+       query fails with a Py4J connection error even though nothing is
+       wrong with the query itself. PySpark sessions aren't designed to be
+       rebuilt cleanly inside the same interpreter (the driver's internal
+       state stays half-wired to the dead JVM).
+    2. The process has been up longer than MAX_UPTIME_SECONDS. Nothing has
+       necessarily failed yet, but unbounded memory growth over many days
+       of uptime is a real, observed risk (see the comment above) -- this
+       recycles proactively instead of waiting for it to become another
+       OOM incident.
     """
+    if time.monotonic() - _start_time > MAX_UPTIME_SECONDS:
+        print(f"[INFO] Uptime exceeded {MAX_UPTIME_SECONDS}s; exiting for a scheduled clean restart", flush=True)
+        os._exit(0)
     try:
         return spark.sql(sql_text).collect()
     except Exception as e:
@@ -176,6 +215,13 @@ def last_updated():
     Same event_time window filter as /api/live-feed on the bronze query --
     load-bearing for Iceberg file pruning, not just semantics (see that
     endpoint's comment).
+
+    analytics_as_of will always lag "today" by roughly a trading week even
+    right after a same-day Yahoo download -- not staleness, but inherent to
+    how fact_volumetric_anomalies is labeled: silver_to_gold.py uses
+    lead(close, 5) to check whether price moved +-5% over the *next* 5
+    trading days, so a day can't be labeled (and therefore can't appear in
+    this table) until 5 trading days after it actually happened.
     """
     live = run_query("""
         SELECT max(event_time) AS latest

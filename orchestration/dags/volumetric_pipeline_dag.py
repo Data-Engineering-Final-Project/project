@@ -72,9 +72,18 @@ with DAG(
     download_yahoo_data = BashOperator(
         task_id="download_yahoo_data",
         bash_command=(
+            # Was guarded by file *existence* only, so download_yahoo.py ran
+            # exactly once, ever -- the gold layer (built on top of this data)
+            # then stayed pinned to whatever day that first run happened to
+            # land on, no matter how many times the DAG cycled afterwards.
+            # Guarding by the file's *modification date* instead makes it
+            # re-download once per calendar day (download_yahoo.py pulls a
+            # rolling 5y window ending "today", so a same-day re-run would be
+            # redundant -- this still avoids that) while guaranteeing the
+            # analytics panels reflect a new trading day automatically.
             f"docker exec {SPARK_CONTAINER} bash -c "
-            f"'test -f /home/iceberg/data/bronze/yahoo/historical_market_data.parquet || "
-            f"python3 /home/iceberg/jobs/download_yahoo.py'"
+            f"'test \"$(date -u +%Y-%m-%d -r /home/iceberg/data/bronze/yahoo/historical_market_data.parquet 2>/dev/null)\" "
+            f"= \"$(date -u +%Y-%m-%d)\" || python3 /home/iceberg/jobs/download_yahoo.py'"
         ),
     )
 

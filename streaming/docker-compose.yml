@@ -2,6 +2,18 @@ services:
   kafka:
     image: apache/kafka:3.9.0
     container_name: kafka
+    # Found running with no restart policy at all (defaults to "no") after a
+    # real incident: Docker's OOM killer took it out (docker inspect showed
+    # OOMKilled: true, RestartPolicy: no) and it simply stayed dead -- for
+    # 13+ days, silently, because nothing else in the stack depends on Kafka
+    # failing loudly. The producers and the ensure_streaming_running Airflow
+    # task both already retry/restart correctly on their own side, but none
+    # of that helps when the broker they're retrying against is gone; they
+    # just kept failing to reconnect every cycle. This is the same class of
+    # bug already fixed once for dashboard-api's JVM death -- a stateful
+    # dependency needs its own restart policy, not just resilience in the
+    # things that depend on it.
+    restart: unless-stopped
     networks:
       - data_pipeline_network
     ports:
@@ -23,6 +35,7 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
+    restart: unless-stopped
     depends_on:
       - kafka
     networks:

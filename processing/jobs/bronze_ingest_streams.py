@@ -58,6 +58,25 @@ def read_topic(spark, topic, schema):
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
         .option("subscribe", topic)
         .option("startingOffsets", "earliest")
+        # Without this, any offset mismatch between the checkpoint and what
+        # Kafka currently has (broker restart losing unflushed segments,
+        # topic auto-recreated after the broker was down long enough that
+        # producers' first successful publish recreated it fresh, retention
+        # rolling past the checkpointed offset) is a fatal
+        # IllegalStateException that kills the whole query -- and since
+        # Structured Streaming resumes from the same checkpoint on every
+        # restart, it hits the exact same error again immediately, forever.
+        # Observed this directly: a real Kafka outage (see
+        # streaming/docker-compose.yml's restart policy fix) left this job
+        # permanently crash-looping even after Kafka itself came back
+        # healthy, because bronze_analyst_ratings' checkpoint still expected
+        # an offset (181191) the broker no longer had (its topic had reset
+        # to offset 49). For a bronze landing zone that's meant to be
+        # resilient to exactly this kind of infra hiccup, skipping past the
+        # gap and continuing is the right tradeoff -- silver/gold recompute
+        # from whatever bronze actually has, same as any other late/missing
+        # data.
+        .option("failOnDataLoss", "false")
         .load()
         .select(from_json(col("value").cast("string"), schema).alias("data"))
         .select("data.*")
