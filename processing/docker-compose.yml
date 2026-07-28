@@ -8,7 +8,25 @@ services:
       - rest
       - minio
     volumes:
-      - ./warehouse:/home/iceberg/warehouse
+      # A named volume, NOT a bind mount to ./warehouse, and that distinction
+      # is load bearing. This directory holds Spark's streaming checkpoints,
+      # the trained model pickle, and job logs -- runtime state, not source.
+      # When the repo lives on cloud-synced storage (OneDrive Files
+      # On-Demand, iCloud Drive, Dropbox Smart Sync), the sync client
+      # eventually evicts the contents of files nobody has touched recently
+      # and leaves a metadata-only placeholder. `ls -la` still shows the
+      # original size, so everything looks fine; the giveaway is 0 allocated
+      # blocks. A read from the host transparently re-downloads the file, but
+      # a read from inside a container through the bind mount cannot trigger
+      # that -- it just fails with "Resource deadlock avoided" (errno 35).
+      # This bit twice: first it took out the ML panel (unreadable model
+      # pickle), then it stopped the Kafka to bronze streaming job from
+      # starting at all, with 476 checkpoint files evicted. Docker's own
+      # volume storage is outside any sync client's reach.
+      #
+      # Nothing here needs to be visible from the host. To read the streaming
+      # log: docker exec spark-iceberg tail -f /home/iceberg/warehouse/bronze_ingest_streams.log
+      - warehouse-store:/home/iceberg/warehouse
       - ./notebooks:/home/iceberg/notebooks/notebooks
       - ./jobs:/home/iceberg/jobs
       - ../data:/home/iceberg/data
@@ -41,13 +59,25 @@ services:
       - rest
       - minio
     volumes:
-      - ./warehouse:/home/iceberg/warehouse
+      # Same named volume spark-iceberg writes the trained model into (see
+      # the comment there for why this isn't a bind mount). Read side only.
+      - warehouse-store:/home/iceberg/warehouse
       - ./dashboard:/home/iceberg/dashboard
       - ./conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
     environment:
       AWS_ACCESS_KEY_ID: admin
       AWS_SECRET_ACCESS_KEY: supersecret
       AWS_REGION: us-east-1
+      # Caps the local-mode Spark driver's heap. Left unset it defaults to
+      # 1g of heap but nothing bounds total RSS, and this process was found
+      # at 2.23GB after two weeks of polling every 5s -- enough to push the
+      # whole stack (Kafka, Airflow, MinIO, two Spark containers) past
+      # Docker Desktop's ~7.75GB and get the JVM killed. It kept recovering
+      # via the os._exit self-heal below, but 44 container restarts and 168
+      # JVM deaths later that's a crash loop, not resilience: each cycle is
+      # ~30s of the dashboard being unreachable. These queries are small
+      # aggregates over pruned Iceberg scans; 512m is plenty.
+      SPARK_DRIVER_MEMORY: 512m
     ports:
       - "8000:8000"
     # api.py deliberately exits (os._exit) if it detects its SparkSession's
@@ -114,6 +144,7 @@ services:
 
 volumes:
   minio-data:
+  warehouse-store:
 
 networks:
   data_pipeline_network:

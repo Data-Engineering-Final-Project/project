@@ -89,20 +89,56 @@ def run_query(sql_text: str):
         raise
 
 
-def get_model():
+def load_model():
+    """Read the pickled model off disk into _model_cache.
+
+    Deliberately called once at startup rather than lazily on the first
+    /api/predict request. The lazy version meant a failure here only
+    surfaced when someone actually clicked the ML panel -- and it surfaced
+    as a raw 500 with a stack trace, with the other four panels working
+    fine, which reads like "the ML panel is broken" rather than "the model
+    file couldn't be read". Loading eagerly turns that into one obvious
+    line in `docker logs dashboard-api` at boot.
+    """
     global _model_cache
-    if _model_cache is None:
-        if not Path(MODEL_PATH).exists():
-            raise HTTPException(
-                status_code=503,
-                detail="Model not trained yet. Run: docker exec spark-iceberg python3 /home/iceberg/jobs/train_model.py",
-            )
+    if not Path(MODEL_PATH).exists():
+        print(f"[WARN] No model at {MODEL_PATH}; /api/predict will return 503 "
+              f"until train_model.py runs", flush=True)
+        return
+    try:
         with open(MODEL_PATH, "rb") as f:
             _model_cache = pickle.load(f)
+        print(f"[INFO] Loaded model from {MODEL_PATH}", flush=True)
+    except OSError as e:
+        # Seen for real: OSError(errno 35, 'Resource deadlock avoided')
+        # reading a file that exists and has a valid size. Cause was the
+        # host's cloud-sync layer (OneDrive Files On-Demand) having evicted
+        # the file's contents to the cloud after ~2 weeks of nobody touching
+        # it -- the model is written once by train_model.py and then only
+        # read, so it's exactly the kind of file that gets dehydrated. A
+        # read from the host transparently re-downloads it; a read from
+        # inside a container through the bind mount cannot trigger that, it
+        # just fails. MODEL_DIR is a named Docker volume now specifically so
+        # this path never touches cloud-synced storage again, but keep this
+        # handler: it turns an unexplained 500 into a named cause.
+        print(f"[WARN] Could not read {MODEL_PATH} ({e}); /api/predict will "
+              f"return 503. If the warehouse is on cloud-synced storage "
+              f"(OneDrive/iCloud/Dropbox), the file may be a placeholder -- "
+              f"re-run train_model.py to regenerate it locally.", flush=True)
+
+
+def get_model():
+    if _model_cache is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Model unavailable. Run: docker exec spark-iceberg python3 /home/iceberg/jobs/train_model.py",
+        )
     return _model_cache
 
 
 app = FastAPI(title="Volumetric Anomaly Detection Dashboard")
+
+load_model()
 
 
 def rows_to_dicts(rows):
