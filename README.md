@@ -66,8 +66,23 @@ unused baseline continuously was consuming ~1.1GB for nothing.)
 
 MinIO credentials: `admin` / `supersecret` — bucket `warehouse` is created automatically.
 
-The batch jobs (download → ingest → silver → gold) run automatically once
-Airflow is up (step 4 below). To run them by hand instead — everything here
+**Then fetch the Yahoo Finance data before moving on:**
+
+```bash
+docker exec spark-iceberg python3 /home/iceberg/jobs/download_yahoo.py
+```
+
+Takes about a minute (30 tickers, 5 years of daily bars). This is the one
+step worth doing here rather than leaving to Airflow. The file it writes,
+`data/bronze/yahoo/historical_market_data.csv`, is generated data and so
+isn't in git — a fresh clone genuinely doesn't have it. The streaming
+producers in step 3 replay from that file, so if it isn't there yet they
+simply wait for it (and say so in their logs) until Airflow's first cycle
+downloads it. Nothing breaks either way; running it now just means the
+stream starts producing immediately instead of a few minutes later.
+
+The rest of the batch chain (ingest → silver → gold) runs automatically once
+Airflow is up (step 4 below). To run those by hand instead — everything here
 runs entirely inside the container, no host Python needed (see
 [docs/processing_interface.md](docs/processing_interface.md) for the full job
 dependency order and final table names):
